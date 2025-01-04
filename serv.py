@@ -23,7 +23,7 @@ else:
     output_layers = [layer_names[i - 1] for i in output_layers_indices]
 
 # Initialize camera
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(0)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Reduce resolution
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -31,8 +31,8 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 # Initialize sensor data variables
 latitude = "N/A"
 longitude = "N/A"
-speed = "N/A"
-mq3_value = "N/A"
+speed = 90
+mq3_value = 199
 
 # Initialize serial connection for sensor data
 try:
@@ -123,14 +123,33 @@ def video_feed():
     return Response(generate_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
-# Route to get sensor data
+
+# Route to get sensor data with alert logic
 @app.route('/get_sensor_data')
 def get_sensor_data():
+    global latitude, longitude, speed, mq3_value
+
+    # Define thresholds for alerts
+    speed_limit = 80  # Example: 80 km/h
+    mq3_limit = 200   # Example: MQ3 value threshold
+
+    alerts = []  # List to store multiple alert messages
+
+    if speed != "N/A" and float(speed) > speed_limit:
+        alerts.append(f"Speed is too high: {speed} km/h")
+
+    if mq3_value != "N/A" and float(mq3_value) > mq3_limit:
+        alerts.append(f"Alcohol detected: MQ3 value is {mq3_value}")
+
+    alert_message = " | ".join(alerts)  # Combine messages with a separator
+
     return {
         'latitude': latitude,
         'longitude': longitude,
         'speed': speed,
-        'mq3': mq3_value
+        'mq3': mq3_value,
+        'alert': bool(alerts),  # True if there are any alerts
+        'alert_message': alert_message  # Full alert message
     }
 
 # Route for the main page
@@ -155,11 +174,22 @@ def index():
                 img {
                     max-width: 100%;
                     height: auto;
-                    border: 2px solid #333;
                 }
                 .data {
                     margin-top: 20px;
                     font-size: 1.2em;
+                }
+                .warning {
+                    margin-top: 20px;
+                    font-size: 1.5em;
+                    color: red;
+                    font-weight: bold;
+                    display: none; /* Hidden by default */
+                }
+                .warning img {
+                    width: 50px;
+                    height: 50px;
+                    vertical-align: middle;
                 }
             </style>
         </head>
@@ -170,20 +200,36 @@ def index():
                 <p>GPS: Lat=<span id="latitude">{{ latitude }}</span>, Lon=<span id="longitude">{{ longitude }}</span>, Speed=<span id="speed">{{ speed }}</span> km/h</p>
                 <p>MQ3: <span id="mq3">{{ mq3_value }}</span></p>
             </div>
+            <div class="warning" id="warning">
+                <img src="/static/war1.webp" alt="Warning">
+                <span id="warning-message"></span>
+            </div>
             <script>
                 // Update sensor data dynamically
                 setInterval(async () => {
                     const response = await fetch('/get_sensor_data');
                     const data = await response.json();
+
                     document.getElementById('latitude').textContent = data.latitude;
                     document.getElementById('longitude').textContent = data.longitude;
                     document.getElementById('speed').textContent = data.speed;
                     document.getElementById('mq3').textContent = data.mq3;
+
+                    const warningDiv = document.getElementById('warning');
+                    const warningMessage = document.getElementById('warning-message');
+
+                    if (data.alert) {
+                        warningDiv.style.display = "block"; // Show the warning div
+                        warningMessage.textContent = data.alert_message; // Update message
+                    } else {
+                        warningDiv.style.display = "none"; // Hide the warning div
+                    }
                 }, 1000);
             </script>
         </body>
         </html>
     ''', latitude=latitude, longitude=longitude, speed=speed, mq3_value=mq3_value)
+
 
 # Run the Flask app
 if __name__ == '__main__':
