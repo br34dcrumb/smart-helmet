@@ -2,6 +2,8 @@
 yolov3*
 coco*
 
+gps.zip
+
 .venv
 venv
 env

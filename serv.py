@@ -6,6 +6,9 @@ import threading
 
 # Initialize Flask app
 app = Flask(__name__)
+CAM = 1
+PORT = 'COM3'
+BAUD = 115200
 
 # Load YOLO model
 net = cv2.dnn.readNet("yolov3.weights", "yolov3.cfg")
@@ -24,8 +27,8 @@ else:
 
 # Initialize camera
 cap = cv2.VideoCapture(1)
-cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Reduce resolution
+cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 # Initialize sensor data variables
@@ -36,7 +39,7 @@ mq3_value = "N/A"
 
 # Initialize serial connection for sensor data
 try:
-    ser = serial.Serial('COM3', 115200, timeout=1)  # Replace with your serial port
+    ser = serial.Serial(PORT, BAUD, timeout=1)  # Replace with your serial port
     print("Connected to serial port")
 except serial.SerialException as e:
     print(f"Error opening serial port: {e}")
@@ -56,18 +59,15 @@ def read_sensor_data():
                 mq3_value = line.split(":")[1]
                 print(f"MQ3 Value: {mq3_value}")
 
-# Start sensor data reading in a separate thread
 if ser:
     threading.Thread(target=read_sensor_data, daemon=True).start()
 
-# Function to generate frames with object detection
 def generate_frames():
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Get frame dimensions
         height, width, _ = frame.shape
 
         # Prepare input for YOLO
@@ -75,12 +75,10 @@ def generate_frames():
         net.setInput(blob)
         detections = net.forward(output_layers)
 
-        # Lists to store bounding boxes, confidences, and class IDs
         boxes = []
         confidences = []
         class_ids = []
 
-        # Process detections
         for output in detections:
             for detection in output:
                 scores = detection[5:]
@@ -88,21 +86,17 @@ def generate_frames():
                 confidence = scores[class_id]
 
                 if confidence > 0.5:  # Filter weak detections
-                    # Get bounding box coordinates
                     box = detection[0:4] * np.array([width, height, width, height])
                     (center_x, center_y, w, h) = box.astype("int")
                     x = int(center_x - w / 2)
                     y = int(center_y - h / 2)
-
-                    # Add to lists
+                    
                     boxes.append([x, y, w, h])
                     confidences.append(float(confidence))
                     class_ids.append(class_id)
 
-        # Apply Non-Maximum Suppression
         indices = cv2.dnn.NMSBoxes(boxes, confidences, score_threshold=0.5, nms_threshold=0.4)
 
-        # Draw final bounding boxes
         if len(indices) > 0:
             for i in indices.flatten():
                 x, y, w, h = boxes[i]
@@ -143,35 +137,110 @@ def index():
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Smart Helmet</title>
+            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
             <style>
                 body {
                     font-family: Arial, sans-serif;
-                    text-align: center;
+                    margin: 0;
+                    padding: 0;
                     background-color: #f0f0f0;
                 }
                 h1 {
+                    text-align: center;
                     color: #333;
+                    margin: 20px 0;
                 }
-                img {
-                    max-width: 100%;
-                    height: auto;
-                    border: 2px solid #333;
+                .container {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: stretch;
+                    padding: 10px 20px;
+                    gap: 20px;
+                }
+                .video-feed, .map-container {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+                    border-radius: 8px;
+                    overflow: hidden;
+                    background-color: #fff;
+                }
+                .video-feed img {
+                    width: 100%;
+                    height: 400px;
+                    object-fit: cover;
+                }
+                .map-container {
+                    height: 400px;
+                }
+                #map {
+                    height: 100%;
+                    width: 100%;
                 }
                 .data {
-                    margin-top: 20px;
+                    text
+                    margin: 20px;
+                    padding: 20px;
+                    background-color: #fff;
+                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+                    border-radius: 8px;
+                }
+                .data p {
+                    margin: 10px 0;
                     font-size: 1.2em;
                 }
             </style>
         </head>
         <body>
             <h1>Smart Helmet Live Feed</h1>
-            <img src="{{ url_for('video_feed') }}" alt="Camera Feed">
-            <div class="data">
-                <p>GPS: Lat=<span id="latitude">{{ latitude }}</span>, Lon=<span id="longitude">{{ longitude }}</span>, Speed=<span id="speed">{{ speed }}</span> km/h</p>
-                <p>MQ3: <span id="mq3">{{ mq3_value }}</span></p>
+            <div class="container">
+                <div class="video-feed">
+                    <img src="{{ url_for('video_feed') }}" alt="Camera Feed">
+                </div>
+                <div class="map-container">
+                    <div id="map"></div>
+                </div>
             </div>
+            <div class="data">
+                <p>GPS: Lat=<span id="latitude">{{ latitude }}</span>, Lon=<span id="longitude">{{ longitude }}</span>, Speed=<span id="speed">{{ speed }}</span> km/h <strong>||</strong> MQ3: <span id="mq3">{{ mq3_value }}</span></p>
+            </div>
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
             <script>
-                // Update sensor data dynamically
+                // Initialize the map
+                let map = L.map('map').setView([0, 0], 22);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors'
+                }).addTo(map);
+
+                // Add a marker
+                let marker = L.marker([0, 0]).addTo(map);
+
+                // Variables to store the last known GPS coordinates
+                let lastLat = 0;
+                let lastLon = 0;
+
+                // Function to update the map and marker
+                function updateMap(lat, lon) {
+                    if (lat !== "N/A" && lon !== "N/A") {
+                        // Convert latitude and longitude to numbers
+                        lat = parseFloat(lat);
+                        lon = parseFloat(lon);
+
+                        // Only update the map if the coordinates have changed
+                        if (lat !== lastLat || lon !== lastLon) {
+                            // Update the map center without changing the zoom level
+                            map.setView([lat, lon], map.getZoom());
+                            marker.setLatLng([lat, lon]);
+
+                            // Update the last known coordinates
+                            lastLat = lat;
+                            lastLon = lon;
+                        }
+                    }
+                }
+
+                // Update sensor data and map dynamically
                 setInterval(async () => {
                     const response = await fetch('/get_sensor_data');
                     const data = await response.json();
@@ -179,6 +248,9 @@ def index():
                     document.getElementById('longitude').textContent = data.longitude;
                     document.getElementById('speed').textContent = data.speed;
                     document.getElementById('mq3').textContent = data.mq3;
+
+                    // Update the map with new GPS coordinates
+                    updateMap(data.latitude, data.longitude);
                 }, 1000);
             </script>
         </body>
