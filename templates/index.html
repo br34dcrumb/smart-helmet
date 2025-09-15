@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Helmet</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        
+        .stream-window {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 
+                        0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s ease;
+        }
+        
+        .stream-window:hover {
+            transform: translateY(-2px);
+        }
+        
+        .stream-feed {
+            border-radius: 8px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            background: #1a1a1a;
+        }
+        
+        .stream-feed img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .gradient-text {
+            background: linear-gradient(45deg, #3B82F6, #8B5CF6);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        
+        .status-DANGER {
+            background-color: #FEE2E2;
+            color: #DC2626;
+        }
+        
+        .status-WARNING {
+            background-color: #FEF3C7;
+            color: #D97706;
+        }
+        
+        .status-SAFE {
+            background-color: #D1FAE5;
+            color: #059669;
+        }
+
+        .metric-card {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            transition: transform 0.2s ease;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-2px);
+        }
+        
+        .metric-label {
+            font-size: 0.875rem;
+            color: #6B7280;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .serial-feed {
+            background: rgba(255, 255, 255, 0.9) !important;
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1F2937;
+            margin-top: 0.25rem;
+        }
+        
+        .gps-icon {
+            width: 24px;
+            height: 24px;
+            color: #3B82F6;
+        }
+        
+        .speed-icon {
+            width: 24px;
+            height: 24px;
+            color: #10B981;
+        }
+        
+        .sensor-icon {
+            width: 24px;
+            height: 24px;
+            color: #EF4444;
+        }
+    </style>
+</head>
+<body class="min-h-screen py-8 px-4">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold mb-3">
+                <span class="gradient-text">Smart Helmet</span>
+            </h1>
+        </header>
+
+        <!-- Proximity Status -->
+        <div class="mb-8 flex justify-center">
+            <div id="proximity-status" class="status-SAFE text-lg font-semibold px-6 py-2 rounded-full shadow-sm">
+                SAFE
+            </div>
+        </div>
+
+        <!-- Stream Container -->
+        <div class="grid md:grid-cols-2 gap-8 mx-auto">
+            <!-- YOLO Stream -->
+            <div class="stream-window p-6">
+                <div class="flex items-center mb-4">
+                    <div class="w-3 h-3 bg-green-400 rounded-full mr-3"></div>
+                    <h2 class="text-xl font-semibold text-gray-800">Object Detection</h2>
+                </div>
+                <div class="stream-feed">
+                    <img src="/yolo_feed" alt="YOLO Stream" class="w-full">
+                </div>
+            </div>
+
+            <!-- Depth Stream -->
+            <div class="stream-window p-6">
+                <div class="flex items-center mb-4">
+                    <div class="w-3 h-3 bg-blue-400 rounded-full mr-3"></div>
+                    <h2 class="text-xl font-semibold text-gray-800">Depth Estimation</h2>
+                </div>
+                <div class="stream-feed">
+                    <img src="/depth_feed" alt="Depth Stream" class="w-full">
+                </div>
+            </div>
+        </div>
+
+        <br>
+        
+        <!-- Second Container -->
+        <div class="grid md:grid-cols-2 gap-8 mx-auto">
+            <!-- Location Tracking -->
+            <div class="stream-window p-6">
+                <div class="flex items-center mb-4">
+                    <div class="w-3 h-3 bg-yellow-400 rounded-full mr-3"></div>
+                    <h2 class="text-xl font-semibold text-gray-800">Location Tracking</h2>
+                </div>
+                <div class="stream-feed">
+                    <div id="map" style="height: 100%;"></div>
+                </div>
+            </div>
+
+            <!-- Serial Communication -->
+            <div class="stream-window p-6">
+                <div class="flex items-center mb-4">
+                    <div class="w-3 h-3 bg-red-400 rounded-full mr-3"></div>
+                    <h2 class="text-xl font-semibold text-gray-800">Serial Communication</h2>
+                </div>
+                <div class="stream-feed serial-feed bg-gradient-to-br from-gray-50 to-gray-100">
+                    <div class="grid grid-cols-2 gap-4 p-4">
+                        <!-- GPS Coordinates -->
+                        <div class="metric-card col-span-2 flex items-start">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="gps-icon mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <div class="flex-1">
+                                <div class="metric-label">GPS Location</div>
+                                <div class="metric-value flex space-x-2">
+                                    <span id="latitude">N/A</span>
+                                    <span class="text-gray-400">|</span>
+                                    <span id="longitude">N/A</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Speed -->
+                        <div class="metric-card">
+                            <div class="flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="speed-icon mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                                <div class="flex-1">
+                                    <div class="metric-label">Speed</div>
+                                    <div class="metric-value">
+                                        <span id="speed">N/A</span>
+                                        <span class="text-sm text-gray-500 ml-1">km/h</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- MQ3 Value -->
+                        <div class="metric-card">
+                            <div class="flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="sensor-icon mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+                                </svg>
+                                <div class="flex-1">
+                                    <div class="metric-label">MQ3 Sensor</div>
+                                    <div class="metric-value">
+                                        <span id="mq3_value">N/A</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="mt-12 text-center text-gray-500 text-sm">
+            <p>Created by Group 7, EAC 2022-26. All rights reserved. </p>
+        </footer>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Initialize the map
+        let map = L.map('map').setView([0, 0], 25);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let marker = L.marker([0, 0]).addTo(map);
+
+        let lastLat = 0;
+        let lastLon = 0;
+
+        function updateMap(lat, lon) {
+            if (lat !== "N/A" && lon !== "N/A") {
+                lat = parseFloat(lat);
+                lon = parseFloat(lon);
+
+                if (lat !== lastLat || lon !== lastLon) {
+                    map.setView([lat, lon], map.getZoom());
+                    marker.setLatLng([lat, lon]);
+
+                    lastLat = lat;
+                    lastLon = lon;
+                }
+            }
+        }
+
+        function fetchSensorData() {
+            console.log("Fetching sensor data...");
+            fetch('/sensor_data')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("Fetched data:", data);
+                    document.getElementById('latitude').innerText = data.latitude;
+                    document.getElementById('longitude').innerText = data.longitude;
+                    document.getElementById('speed').innerText = data.speed;
+                    document.getElementById('mq3_value').innerText = data.mq3_value;
+
+                    updateMap(data.latitude, data.longitude);
+                })
+                .catch(error => console.error("Error fetching sensor data:", error));
+        }
+
+        function updateProximityStatus() {
+            fetch('/proximity_status')
+                .then(response => response.text())
+                .then(status => {
+                    const statusDiv = document.getElementById('proximity-status');
+                    statusDiv.textContent = status;
+                    statusDiv.className = `status-${status} text-lg font-semibold px-6 py-2 rounded-full shadow-sm`;
+                });
+        }
+
+        setInterval(fetchSensorData, 1000);
+        setInterval(updateProximityStatus, 500);
+    </script>
+</body>
+</html>
